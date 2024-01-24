@@ -82,116 +82,95 @@ async def on_ready():
     
     await init_aiohttp_session()
     print("Ready.")    
-
+   
 @ghc_bot.event
 async def on_message(msg):
     if msg.author == ghc_bot.user:
-        return 
+        return
     elif not paused:
-        # The process looks like this:
-        #
-        # (1) https://github.com/SeanJxie/3d-engine-from-scratch/blob/main/CppEngine3D/engine.cpp
-        #                                            |
-        #                                            V
-        # (2) ['https:', '', 'github.com', 'SeanJxie', '3d-engine-from-scratch', 'blob', 'main', 'CppEngine3D', 'engine.cpp']
-        #                                            |
-        #                                            V
-        # (3) ['https:/', 'raw.githubusercontent.com', 'SeanJxie', '3d-engine-from-scratch', 'main', 'CppEngine3D', 'engine.cpp']
-        #                                            |
-        #                                            V
-        # (4) https://raw.githubusercontent.com/SeanJxie/3d-engine-from-scratch/main/CppEngine3D/engine.cpp   +1`
+        code_links = find_github_links(msg.content)
+        
+        if len(code_links) > 1:
+            await msg.channel.send(f"> :eyes: I've detected {len(code_links)} valid links here. They will be served in order!")
 
-        print(f"\nMessage: {msg.content}")
-        matches = re.findall("http(s?)://(www\.)?github.com/([^\s]+)", msg.content)
-
-        # We want no reps and valid extensions.
-        matches = list(dict.fromkeys(filter(lambda x: get_ext(x[-1]) in COMMON_EXTS.keys(), matches)))
-
-        if len(matches) > 1:
-            await msg.channel.send(f"> :eyes: I've detected {len(matches)} valid links here. They will be served in order!")
-
-        if len(matches) != 0:
-            for match in matches:
-
-                # (1)
-                url = "https://github.com/" + match[-1]
-                print(f"\nDetected url: {url}")
-
-                # (2)
-                urlSplit = url.split('/')
-                    
-                # (3)
-                urlSplit.remove('')
-                if "blob" in urlSplit:
-                    urlSplit.remove("blob")
-                elif "tree" in urlSplit:
-                    urlSplit.remove("tree")
-
-                urlSplit[0] = "https:/"
-                urlSplit[1] = "raw.githubusercontent.com"
-
-                # (4)
-                rawUrl = '/'.join(urlSplit)
-                print(f"Rebuilt url: {rawUrl}")
-
-                # Parse HTML and get all text
-                print("Getting response...")
-                async with aiohttp_session.get(rawUrl) as response:
-                    status = response.status
-                    codeString = await response.text()
-                print(f"Done.\nStatus: {status}")
-
-                if status == 404:
-                    await msg.channel.send("> :scream: Uh oh! It seems I can't find anything in that URL. Perhaps it's a private repo...")
-                    print("404 Error send success.")
-
-                else:
-                    backtickCount = codeString.count("```")
-                    codeString = codeString.replace("```", "`​``") # Zero-width spaces allow triple backticks to be shown in code markdown. THe second string has a zero-width char inbetween the first 2 backticks
-                    highlightAlias = COMMON_EXTS[get_ext(urlSplit[-1])]
-
-                    if highlightAlias is not None:
-                        payload = f"```{highlightAlias}\n{codeString}```"
-                    else:
-                        payload = f"```{codeString}```"
-                    
-                    fileNameUnquoted = urllib.parse.unquote(urlSplit[-1])
-                    await msg.channel.send(f"> :desktop: The following code is found in `{fileNameUnquoted}`:")
-                    if len(payload) <= PAYLOAD_MAXLEN:
-                        
-                        print(urlSplit)
-                        await msg.channel.send(payload)
-
-                    # Send text and split into multiple messages if it's too long
-                    elif long_code:
-                        print("Code too long. Splitting.")
-
-                        payloadSegment = ''
-
-                        for line in codeString.split('\n'):
-                            payloadSize = len(payloadSegment) + len(line) + len(highlightAlias) + backtickCount + 6 # The +6 accounts for the 6 backticks used for code markup
-
-                            if payloadSize >= PAYLOAD_MAXLEN: 
-                                if highlightAlias is not None:
-                                    await msg.channel.send(f"```{highlightAlias}\n{payloadSegment}```")
-                                else:
-                                    await msg.channel.send(f"```{payloadSegment}```")
-                                    
-                                print(f"Payload segment size: {len(payloadSegment) + 6}")
-                                payloadSegment = ''
-
-                            payloadSegment += line + '\n'
-
-                        await msg.channel.send(f"```{highlightAlias}\n{payloadSegment}```")
-                        print(f"Payload segment size: {len(payloadSegment) + 6}")
-
-                    else:
-                        await msg.channel.send(f"> That's a lot of code! Type `{CMD_CHAR}longcode` to toggle my long code reading ability!")
-
-                    await msg.channel.send(f"> :ok_hand: That's the end of `{fileNameUnquoted}`")
-                    print("Send success.")
+        if code_links:
+            for link in code_links:
+                await process_github_link(msg, link)
 
     await ghc_bot.process_commands(msg)
+
+def find_github_links(content):
+    matches = re.findall("http(s?)://(www\.)?github.com/([^\s]+)", content)
+    matches = list(dict.fromkeys(filter(lambda x: get_ext(x[-1]) in COMMON_EXTS.keys(), matches)))
+    return matches
+
+async def process_github_link(msg, link):
+    url = "https://github.com/" + link[-1]
+
+    url_split = url.split('/')
+
+    url_split.remove('')
+    if "blob" in url_split:
+        url_split.remove("blob")
+    elif "tree" in url_split:
+        url_split.remove("tree")
+
+    url_split[0] = "https:/"
+    url_split[1] = "raw.githubusercontent.com"
+
+    raw_url = '/'.join(url_split)
+
+    async with aiohttp_session.get(raw_url) as response:
+        status = response.status
+        code_string = await response.text()
+
+    if status == 404:
+        await msg.channel.send("> :scream: Uh oh! It seems I can't find anything in that URL. Perhaps it's a private repo...")
+    else:
+        await send_code_payload(msg, code_string, url_split)
+
+async def send_code_payload(msg, code_string, url_split):
+    backtick_count = code_string.count("```")
+    code_string = code_string.replace("```", "`​``")  # Zero-width spaces allow triple backticks to be shown in code markdown.
+    highlight_alias = COMMON_EXTS[get_ext(url_split[-1])]
+
+    if highlight_alias is not None:
+        payload = f"```{highlight_alias}\n{code_string}```"
+    else:
+        payload = f"```{code_string}```"
+
+    file_name_unquoted = urllib.parse.unquote(url_split[-1])
+    await msg.channel.send(f"> :desktop: The following code is found in `{file_name_unquoted}`:")
+    
+    if len(payload) <= PAYLOAD_MAXLEN:
+        await msg.channel.send(payload)
+    elif long_code:
+        await split_and_send_code_payload(msg, code_string, highlight_alias, backtick_count)
+    else:
+        await msg.channel.send(f"> That's a lot of code! Type `{CMD_CHAR}longcode` to toggle my long code reading ability!")
+
+    await msg.channel.send(f"> :ok_hand: That's the end of `{file_name_unquoted}`")
+
+async def split_and_send_code_payload(msg, code_string, highlight_alias, backtick_count):
+    print("Code too long. Splitting.")
+    payload_segment = ''
+
+    for line in code_string.split('\n'):
+        payload_size = len(payload_segment) + len(line) + len(highlight_alias) + backtick_count + 6
+
+        if payload_size >= PAYLOAD_MAXLEN:
+            if highlight_alias is not None:
+                await msg.channel.send(f"```{highlight_alias}\n{payload_segment}```")
+            else:
+                await msg.channel.send(f"```{payload_segment}```")
+
+            print(f"Payload segment size: {len(payload_segment) + 6}")
+            payload_segment = ''
+
+        payload_segment += line + '\n'
+
+    await msg.channel.send(f"```{highlight_alias}\n{payload_segment}```")
+    print(f"Payload segment size: {len(payload_segment) + 6}")
 
 @ghc_bot.command()
 async def longcode(ctx):
@@ -237,9 +216,6 @@ async def help(ctx):
     await ctx.send(embed=embed)
 
 def main():
-    print("Thanks for using GithubCodeBot!\nIf you'd like to reset your bot token or command character, simply delete bot_token.txt or cmd_char.txt and reset the program.\n")
-    print("Github repo: https://github.com/SeanJxie/GithubCodeBot")
-
     try:
         print("\nConnecting...\n")
         ghc_bot.run(TOKEN)
