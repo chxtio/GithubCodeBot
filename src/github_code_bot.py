@@ -11,28 +11,11 @@ from extensions import COMMON_EXTS
 
 #print(f"Discord: {discord.__version__} aiohttp: {aiohttp.__version__}")
 
-# Handle bot token input
-BT_FILEPATH = os.path.join(os.getcwd(), "bot_token.txt")
-if os.path.exists(BT_FILEPATH):
-    with open(BT_FILEPATH, 'r') as btf:
-        TOKEN = btf.readline()
-else:
-    TOKEN = input("Enter bot token here (this happens only once): ")
-    with open(BT_FILEPATH, 'w') as btf:
-        btf.write(TOKEN)
-
-# Handle command character input
-CC_FILEPATH = os.path.join(os.getcwd(), "cmd_char.txt")
-if os.path.exists(CC_FILEPATH):
-    with open(CC_FILEPATH, 'r') as ccf:
-        CMD_CHAR = ccf.readline()
-else:
-    CMD_CHAR = input("Enter your command character here (this happens only once): ")
-    while len(CMD_CHAR) != 1:
-        print("The command character is ONE character only. Please retry.")
-        CMD_CHAR = input("Enter your command character here (this happens only once): ")
-    with open(CC_FILEPATH, 'w') as ccf:
-        ccf.write(CMD_CHAR)
+import os
+from dotenv import load_dotenv
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
+CMD_CHAR = os.getenv("CMD_CHR")
 
 # For pyinstaller exe compilation
 def resource_path(relative_path):
