@@ -11,12 +11,14 @@ from extensions import COMMON_EXTS
 
 #print(f"Discord: {discord.__version__} aiohttp: {aiohttp.__version__}")
 
-import os
 from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 CMD_CHAR = os.getenv("CMD_CHR")
 GH_TOKEN = os.getenv("GH_TOKEN")
+
+intents = discord.Intents.all()
+intents.members = True
 
 # For pyinstaller exe compilation
 def resource_path(relative_path):
@@ -36,7 +38,7 @@ HEX_YELLOW = 0xFFDF00
 HEX_LBLUE  = 0xADD8E6
 
 # Bot code start here.
-ghc_bot = commands.Bot(command_prefix=CMD_CHAR, description="A Discord bot to preview code in Github links.")
+ghc_bot = commands.Bot(command_prefix=CMD_CHAR, description="A Discord bot to preview code in Github links.", intents=intents)
 ghc_bot.remove_command("help") # We write our own.
 
 aiohttp_session = None
@@ -73,23 +75,42 @@ async def on_message(msg):
         return
     elif not paused:
         code_links = find_github_links(msg.content)
+
+        # Check if the message is in a thread
+        if isinstance(msg.channel, discord.Thread):
+            # Respond to the message in the thread
+            await msg.channel.send(f'Hello, {msg.author.mention}! I received your message in the thread.')
         
         if len(code_links) > 1:
             await msg.channel.send(f"> :eyes: I've detected {len(code_links)} valid links here. They will be served in order!")
 
         if code_links:
+            print(f'code_links: {code_links}')
             for link in code_links:
+                print(f'link: {link}')
                 await process_github_link(msg, link)
 
     await ghc_bot.process_commands(msg)
 
 def find_github_links(content):
-    matches = re.findall("http(s?)://(www\.)?github.com/([^\s]+)", content)
-    matches = list(dict.fromkeys(filter(lambda x: get_ext(x[-1]) in COMMON_EXTS.keys(), matches)))
+    # matches = re.findall("http(s?)://(www\.)?github.com/([^\s]+)", content)
+    # matches = list(dict.fromkeys(filter(lambda x: get_ext(x[-1]) in COMMON_EXTS.keys(), matches)))
+    # return matches
+
+    # Updated regular expression to capture optional line range (#L1-L10)
+    matches = re.findall(r"http(s?)://(www\.)?github.com/([^\s#]+)(?:#L(\d+)-L(\d+))?", content)
+    print(f'matches: {matches}')
+
+    # Filtering and de-duplicating as before
+    matches = list(dict.fromkeys(filter(lambda x: get_ext(x[2]) in COMMON_EXTS.keys(), matches)))
+    print(f'matches (after ext): {matches}')
     return matches
 
 async def process_github_link(msg, link):
-    url = "https://github.com/" + link[-1]
+    # url = "https://github.com/" + link[-1]
+    url = "https://github.com/" + link[-3]
+    start, end = link[-2], link[-1]
+    print(f'url: {url}')
 
     url_split = url.split('/')
 
@@ -103,6 +124,7 @@ async def process_github_link(msg, link):
     url_split[1] = f"{GH_TOKEN}@raw.githubusercontent.com"
 
     raw_url = '/'.join(url_split)
+    print(f'raw_url: {raw_url}')
 
     async with aiohttp_session.get(raw_url) as response:
         status = response.status
@@ -111,12 +133,18 @@ async def process_github_link(msg, link):
     if status == 404:
         await msg.channel.send("> :scream: Uh oh! It seems I can't find anything in that URL...")
     else:
-        await send_code_payload(msg, code_string, url_split)
+        await send_code_payload(msg, code_string, url_split, start, end)
 
-async def send_code_payload(msg, code_string, url_split):
+async def send_code_payload(msg, code_string, url_split, start, end):
     backtick_count = code_string.count("```")
     code_string = code_string.replace("```", "`​``")  # Zero-width spaces allow triple backticks to be shown in code markdown.
     highlight_alias = COMMON_EXTS[get_ext(url_split[-1])]
+
+    if start and end:  # Check if start and end lines were specified
+        start, end = int(start), int(end)
+        # start_line, end_line = map(int, url_split[-1].split('#L')[1].split('-'))
+        code_lines = code_string.split('\n')[start - 1:end]
+        code_string = '\n'.join(code_lines)
 
     if highlight_alias is not None:
         payload = f"```{highlight_alias}\n{code_string}```"
@@ -124,7 +152,11 @@ async def send_code_payload(msg, code_string, url_split):
         payload = f"```{code_string}```"
 
     file_name_unquoted = urllib.parse.unquote(url_split[-1])
-    await msg.channel.send(f"> :desktop: The following code is found in `{file_name_unquoted}`:")
+
+    if start and end:
+        await msg.channel.send(f"> :desktop: The following code is found in `{file_name_unquoted}` lines {start} to {end}:")
+    else:
+        await msg.channel.send(f"> :desktop: The following code is found in `{file_name_unquoted}`:")
     
     if len(payload) <= PAYLOAD_MAXLEN:
         await msg.channel.send(payload)
