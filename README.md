@@ -10,3 +10,5 @@ Changes:
 - Grant permissions to access private repositories
 - User can now specify lines to be printed
 - Migrated to `discord.py v2.0`
+
+![demo](demo.gif)

@@ -76,10 +76,10 @@ async def on_message(msg):
     elif not paused:
         code_links = find_github_links(msg.content)
 
-        # Check if the message is in a thread
-        if isinstance(msg.channel, discord.Thread):
-            # Respond to the message in the thread
-            await msg.channel.send(f'Hello, {msg.author.mention}! I received your message in the thread.')
+        # # Check if the message is in a thread
+        # if isinstance(msg.channel, discord.Thread):
+        #     # Respond to the message in the thread
+        #     await msg.channel.send(f'Hello, {msg.author.mention}! I received your message in the thread.')
         
         if len(code_links) > 1:
             await msg.channel.send(f"> :eyes: I've detected {len(code_links)} valid links here. They will be served in order!")
