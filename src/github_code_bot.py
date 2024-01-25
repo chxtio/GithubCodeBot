@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 CMD_CHAR = os.getenv("CMD_CHR")
+GH_TOKEN = os.getenv("GH_TOKEN")
 
 # For pyinstaller exe compilation
 def resource_path(relative_path):
@@ -99,7 +100,7 @@ async def process_github_link(msg, link):
         url_split.remove("tree")
 
     url_split[0] = "https:/"
-    url_split[1] = "raw.githubusercontent.com"
+    url_split[1] = f"{GH_TOKEN}@raw.githubusercontent.com"
 
     raw_url = '/'.join(url_split)
 
@@ -108,7 +109,7 @@ async def process_github_link(msg, link):
         code_string = await response.text()
 
     if status == 404:
-        await msg.channel.send("> :scream: Uh oh! It seems I can't find anything in that URL. Perhaps it's a private repo...")
+        await msg.channel.send("> :scream: Uh oh! It seems I can't find anything in that URL...")
     else:
         await send_code_payload(msg, code_string, url_split)
 
